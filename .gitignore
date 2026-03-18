@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.env
+*.pkl
+*.h5
+models/*.pkl
+models/*.h5
+data/CICIDS2017/
+data/NSL-KDD/
+*.csv
+!data/sample_logs.csv
+.streamlit/secrets.toml
