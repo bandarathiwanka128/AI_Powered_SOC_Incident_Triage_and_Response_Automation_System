@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install -r requirements.txt -q)",
+      "Bash(pip install pandas --pre -q)",
+      "Bash(pip install streamlit plotly scikit-learn matplotlib seaborn google-generativeai python-dotenv joblib -q)",
+      "Bash(pip install streamlit plotly scikit-learn matplotlib seaborn google-generativeai python-dotenv joblib)",
+      "Bash(python -c \":*)"
+    ]
+  }
+}
