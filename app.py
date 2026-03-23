@@ -15,7 +15,8 @@ from modules.expert_system import ExpertSystem
 from modules.severity_engine import SeverityEngine
 from modules.playbook_engine import PlaybookEngine
 from modules.gemini_integration import GeminiAnalyst
-from config import SEVERITY_LEVELS
+from modules.ml_predictor import MLPredictor
+from config import SEVERITY_LEVELS, MITRE_MAPPING
 
 # ── Page Config ──────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -42,9 +43,9 @@ st.markdown("""
 # ── Initialize AI modules ─────────────────────────────────────────────────────
 @st.cache_resource
 def load_modules():
-    return ExpertSystem(), SeverityEngine(), PlaybookEngine(), GeminiAnalyst()
+    return ExpertSystem(), SeverityEngine(), PlaybookEngine(), GeminiAnalyst(), MLPredictor()
 
-expert_sys, severity_eng, playbook_eng, gemini = load_modules()
+expert_sys, severity_eng, playbook_eng, gemini, ml_predictor = load_modules()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -101,7 +102,17 @@ def process_logs(df_json: str, filter_lvl: str):
     results = []
     for _, row in df.iterrows():
         features = extract_features(row)
-        classification = expert_sys.classify(features)
+        ml_result = ml_predictor.predict(row)
+        if ml_result["attack_type"] and ml_result["confidence"] > 0.7:
+            attack = ml_result["attack_type"]
+            classification = {
+                "attack_type": attack,
+                "confidence": ml_result["confidence"],
+                "rule_name": "ANN Model (CICIDS2017)",
+                "mitre": MITRE_MAPPING.get(attack, MITRE_MAPPING["Benign"]),
+            }
+        else:
+            classification = expert_sys.classify(features)
         severity = severity_eng.score(
             classification["attack_type"], features, classification["confidence"]
         )
