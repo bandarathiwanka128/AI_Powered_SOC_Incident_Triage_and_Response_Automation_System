@@ -1,0 +1,9 @@
+# Don't copy these into Docker image — keeps image small and secure
+.env
+.git
+.azure
+.claude
+__pycache__
+*.pyc
+.streamlit/secrets.toml
+notebooks/
