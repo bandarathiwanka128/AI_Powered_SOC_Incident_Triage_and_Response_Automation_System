@@ -1,5 +1,5 @@
 """
-ML Predictor — Uses trained MLP model for network traffic classification
+ML Predictor — Uses trained PyTorch ANN for network traffic classification
 Trained on CICIDS2017 Tuesday dataset (Benign, Brute Force)
 """
 
@@ -7,14 +7,41 @@ import numpy as np
 import os
 import joblib
 
-MODEL_PATH    = "models/soc_model.pkl"
+MODEL_PATH    = "models/soc_pytorch_model.pt"
+INFO_PATH     = "models/pytorch_model_info.pkl"
 SCALER_PATH   = "models/scaler.pkl"
-ENCODER_PATH  = "models/label_encoder.pkl"
 FEATURES_PATH = "models/feature_cols.pkl"
 
 
+class SOCModel:
+    """PyTorch ANN model wrapper."""
+    def __init__(self, input_size, num_classes):
+        import torch.nn as nn
+        import torch
+        self.network = nn.Sequential(
+            nn.Linear(input_size, 128),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, num_classes)
+        )
+
+    def __call__(self, x):
+        return self.network(x)
+
+    def eval(self):
+        self.network.eval()
+
+    def load_state_dict(self, state_dict):
+        self.network.load_state_dict(state_dict)
+
+
 class MLPredictor:
-    """Scikit-learn MLP classifier trained on CICIDS2017."""
+    """PyTorch ANN classifier trained on CICIDS2017."""
 
     def __init__(self):
         self.enabled = False
@@ -22,16 +49,39 @@ class MLPredictor:
 
     def _load_model(self):
         if not os.path.exists(MODEL_PATH):
+            print("PyTorch model not found — falling back to expert system.")
             return
         try:
-            self.model        = joblib.load(MODEL_PATH)
+            import torch
+            info              = joblib.load(INFO_PATH)
+            self.classes      = info["classes"]
+            self.num_classes  = info["num_classes"]
+            self.input_size   = info["input_size"]
             self.scaler       = joblib.load(SCALER_PATH)
-            self.le           = joblib.load(ENCODER_PATH)
             self.feature_cols = joblib.load(FEATURES_PATH)
-            self.enabled      = True
-            print("ML model loaded successfully.")
+
+            # Build model and load weights
+            import torch.nn as nn
+            self.model = nn.Sequential(
+                nn.Linear(self.input_size, 128),
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(128, 64),
+                nn.ReLU(),
+                nn.Dropout(0.2),
+                nn.Linear(64, 32),
+                nn.ReLU(),
+                nn.Linear(32, self.num_classes)
+            )
+            self.model.load_state_dict(
+                torch.load(MODEL_PATH, map_location=torch.device("cpu"), weights_only=True)
+            )
+            self.model.eval()
+            self.torch   = torch
+            self.enabled = True
+            print("PyTorch ML model loaded successfully.")
         except Exception as e:
-            print(f"ML model load failed: {e}")
+            print(f"PyTorch model load failed: {e}")
 
     def predict(self, row) -> dict:
         """Predict attack class from a raw dataframe row."""
@@ -39,18 +89,24 @@ class MLPredictor:
             return {"attack_type": None, "confidence": 0.0}
 
         try:
-            # Skip ML if none of the expected columns exist in the row
-            matching_cols = [c for c in self.feature_cols if c in row.index]
-            if len(matching_cols) < 5:
+            # Skip if columns don't match
+            matching = [c for c in self.feature_cols if c in row.index]
+            if len(matching) < 5:
                 return {"attack_type": None, "confidence": 0.0}
 
             features = [float(row.get(col, 0)) for col in self.feature_cols]
-            X = np.array([features])
+            X        = np.array([features])
             X_scaled = self.scaler.transform(X)
-            probs = self.model.predict_proba(X_scaled)[0]
-            pred_idx = int(np.argmax(probs))
+
+            with self.torch.no_grad():
+                tensor  = self.torch.FloatTensor(X_scaled)
+                outputs = self.model(tensor)
+                probs   = self.torch.softmax(outputs, dim=1).numpy()[0]
+
+            pred_idx   = int(np.argmax(probs))
             confidence = float(probs[pred_idx])
-            label = self.le.inverse_transform([pred_idx])[0]
+            label      = self.classes[pred_idx]
+
             return {"attack_type": label, "confidence": confidence}
-        except Exception:
+        except Exception as e:
             return {"attack_type": None, "confidence": 0.0}
