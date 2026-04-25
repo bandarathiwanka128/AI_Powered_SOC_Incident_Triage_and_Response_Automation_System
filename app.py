@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 from modules.preprocessor import load_sample_data, extract_features
-from modules.expert_system import ExpertSystem
+from modules.expert_system import ExpertSystem, PreFilter
 from modules.severity_engine import SeverityEngine
 from modules.playbook_engine import PlaybookEngine
 from modules.gemini_integration import GeminiAnalyst
@@ -355,9 +355,9 @@ export SOC_ENDPOINT=http://localhost:8000/api/detect""", language="bash")
 # ── Initialize AI modules ─────────────────────────────────────────────────────
 @st.cache_resource
 def load_modules():
-    return ExpertSystem(), SeverityEngine(), PlaybookEngine(), GeminiAnalyst(), MLPredictor()
+    return ExpertSystem(), SeverityEngine(), PlaybookEngine(), GeminiAnalyst(), MLPredictor(), PreFilter()
 
-expert_sys, severity_eng, playbook_eng, gemini, ml_predictor = load_modules()
+expert_sys, severity_eng, playbook_eng, gemini, ml_predictor, pre_filter = load_modules()
 
 # ── Dashboard Sidebar ─────────────────────────────────────────────────────────
 with st.sidebar:
@@ -406,34 +406,44 @@ def process_logs(df_json: str, filter_lvl: str):
     results = []
     for _, row in df.iterrows():
         features = extract_features(row)
-        ml_result = ml_predictor.predict(row)
-        if ml_result["attack_type"] and ml_result["confidence"] > 0.7:
-            attack = ml_result["attack_type"]
-            classification = {
-                "attack_type": attack,
-                "confidence": ml_result["confidence"],
-                "rule_name": "ANN Model (CICIDS2017)",
-                "mitre": MITRE_MAPPING.get(attack, MITRE_MAPPING["Benign"]),
-            }
-        else:
-            classification = expert_sys.classify(features)
+
+        # ── Stage 1: Pre-filter (fast known patterns) ──────────────────────────
+        classification = pre_filter.detect(features)
+
+        if classification is None:
+            # ── Stage 2: ANN Model ──────────────────────────────────────────────
+            ml_result = ml_predictor.predict(row)
+            if ml_result["attack_type"] and ml_result["confidence"] > 0.7:
+                attack = ml_result["attack_type"]
+                classification = {
+                    "attack_type": attack,
+                    "confidence":  ml_result["confidence"],
+                    "rule_name":   "ANN Model (CICIDS2017)",
+                    "mitre":       MITRE_MAPPING.get(attack, MITRE_MAPPING["Benign"]),
+                    "stage":       "ANN Model",
+                }
+            else:
+                # ── Stage 3: Expert System (rule-based fallback) ────────────────
+                classification = expert_sys.classify(features)
+
         severity = severity_eng.score(
             classification["attack_type"], features, classification["confidence"]
         )
         if severity_eng.should_show(severity["level"], filter_lvl):
             results.append({
-                "Timestamp": row.get("Timestamp", "N/A"),
-                "Source IP": features["src_ip"],
+                "Timestamp":      row.get("Timestamp", "N/A"),
+                "Source IP":      features["src_ip"],
                 "Destination IP": features["dst_ip"],
-                "Port": features["dst_port"],
-                "Attack Type": classification["attack_type"],
-                "MITRE ID": classification["mitre"]["id"],
-                "Confidence": f"{classification['confidence']:.0%}",
-                "Severity": severity["level"],
-                "Score": severity["score"],
-                "_features": features,
+                "Port":           features["dst_port"],
+                "Attack Type":    classification["attack_type"],
+                "MITRE ID":       classification["mitre"]["id"],
+                "Confidence":     f"{classification['confidence']:.0%}",
+                "Severity":       severity["level"],
+                "Score":          severity["score"],
+                "Stage":          classification.get("stage", "Expert System"),
+                "_features":      features,
                 "_classification": classification,
-                "_severity": severity,
+                "_severity":      severity,
             })
     return results
 
@@ -514,6 +524,7 @@ display_df = pd.DataFrame([{
     "MITRE ID":       i["MITRE ID"],
     "Confidence":     i["Confidence"],
     "Score":          i["Score"],
+    "Stage":          i["Stage"],
     "Timestamp":      i["Timestamp"],
 } for i in incidents_sorted])
 
@@ -524,6 +535,7 @@ st.dataframe(
     column_config={
         "Score":    st.column_config.ProgressColumn("Score", min_value=0, max_value=100),
         "Severity": st.column_config.TextColumn("Severity"),
+        "Stage":    st.column_config.TextColumn("Stage", help="Pre-filter / ANN Model / Expert System"),
     }
 )
 
@@ -553,6 +565,7 @@ if selected_idx is not None:
         st.markdown(f"**Source IP:** `{features['src_ip']}`")
         st.markdown(f"**Target:** `{features['dst_ip']}:{features['dst_port']}`")
         st.markdown(f"**Confidence:** {classification['confidence']:.0%}")
+        st.caption(f"Detected by: **{classification.get('stage', 'Expert System')}**")
         st.progress(severity["score"] / 100)
         st.caption(f"Severity Score: {severity['score']}/100")
 
