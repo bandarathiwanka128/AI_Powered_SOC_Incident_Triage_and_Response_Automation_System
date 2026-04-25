@@ -407,23 +407,24 @@ def process_logs(df_json: str, filter_lvl: str):
     for _, row in df.iterrows():
         features = extract_features(row)
 
-        # ── Stage 1: Pre-filter (fast known patterns) ──────────────────────────
-        classification = pre_filter.detect(features)
+        # ── Stage 1: ANN Model (primary — runs on every row) ───────────────────
+        ml_result = ml_predictor.predict(row)
+        if ml_result["attack_type"] and ml_result["confidence"] > 0.7:
+            attack = ml_result["attack_type"]
+            classification = {
+                "attack_type": attack,
+                "confidence":  ml_result["confidence"],
+                "rule_name":   "ANN Model (CICIDS2017)",
+                "mitre":       MITRE_MAPPING.get(attack, MITRE_MAPPING["Benign"]),
+                "stage":       "ANN Model",
+            }
+        else:
+            # ── Stage 2: Pre-filter (resolves ANN uncertainty for clear patterns)
+            # Only reached when ANN confidence < 0.7 — cannot silently override ANN.
+            classification = pre_filter.detect(features)
 
-        if classification is None:
-            # ── Stage 2: ANN Model ──────────────────────────────────────────────
-            ml_result = ml_predictor.predict(row)
-            if ml_result["attack_type"] and ml_result["confidence"] > 0.7:
-                attack = ml_result["attack_type"]
-                classification = {
-                    "attack_type": attack,
-                    "confidence":  ml_result["confidence"],
-                    "rule_name":   "ANN Model (CICIDS2017)",
-                    "mitre":       MITRE_MAPPING.get(attack, MITRE_MAPPING["Benign"]),
-                    "stage":       "ANN Model",
-                }
-            else:
-                # ── Stage 3: Expert System (rule-based fallback) ────────────────
+            if classification is None:
+                # ── Stage 3: Expert System (final fallback) ─────────────────────
                 classification = expert_sys.classify(features)
 
         severity = severity_eng.score(

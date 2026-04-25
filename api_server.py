@@ -73,22 +73,22 @@ async def detect(
     for _, row in df.iterrows():
         features = extract_features(row)
 
-        # Stage 1: Pre-filter
-        classification = pre_filter.detect(features)
+        # Stage 1: ANN Model (primary — runs on every row)
+        ml_result = ml.predict(row)
+        if ml_result["attack_type"] and ml_result["confidence"] > 0.7:
+            attack = ml_result["attack_type"]
+            classification = {
+                "attack_type": attack,
+                "confidence":  ml_result["confidence"],
+                "stage":       "ANN Model",
+                "mitre":       MITRE_MAPPING.get(attack, MITRE_MAPPING["Benign"]),
+            }
+        else:
+            # Stage 2: Pre-filter (only when ANN is uncertain — cannot override ANN)
+            classification = pre_filter.detect(features)
 
-        if classification is None:
-            # Stage 2: ANN Model
-            ml_result = ml.predict(row)
-            if ml_result["attack_type"] and ml_result["confidence"] > 0.7:
-                attack = ml_result["attack_type"]
-                classification = {
-                    "attack_type": attack,
-                    "confidence":  ml_result["confidence"],
-                    "stage":       "ANN Model",
-                    "mitre":       MITRE_MAPPING.get(attack, MITRE_MAPPING["Benign"]),
-                }
-            else:
-                # Stage 3: Expert System
+            if classification is None:
+                # Stage 3: Expert System (final fallback)
                 classification = expert.classify(features)
 
         sev = severity.score(
@@ -131,22 +131,22 @@ async def detect_single(
     row = pd.Series(data)
     features = extract_features(row)
 
-    # Stage 1: Pre-filter
-    classification = pre_filter.detect(features)
+    # Stage 1: ANN Model (primary — runs on every row)
+    ml_result = ml.predict(row)
+    if ml_result["attack_type"] and ml_result["confidence"] > 0.7:
+        attack = ml_result["attack_type"]
+        classification = {
+            "attack_type": attack,
+            "confidence":  ml_result["confidence"],
+            "stage":       "ANN Model",
+            "mitre":       MITRE_MAPPING.get(attack, MITRE_MAPPING["Benign"]),
+        }
+    else:
+        # Stage 2: Pre-filter (only when ANN is uncertain — cannot override ANN)
+        classification = pre_filter.detect(features)
 
-    if classification is None:
-        # Stage 2: ANN Model
-        ml_result = ml.predict(row)
-        if ml_result["attack_type"] and ml_result["confidence"] > 0.7:
-            attack = ml_result["attack_type"]
-            classification = {
-                "attack_type": attack,
-                "confidence":  ml_result["confidence"],
-                "stage":       "ANN Model",
-                "mitre":       MITRE_MAPPING.get(attack, MITRE_MAPPING["Benign"]),
-            }
-        else:
-            # Stage 3: Expert System
+        if classification is None:
+            # Stage 3: Expert System (final fallback)
             classification = expert.classify(features)
 
     sev = severity.score(

@@ -52,35 +52,37 @@ This is a **Security Operations Centre (SOC) Analyst Assistant** — a full-stac
 Network Log + Extracted Features (28 fields)
                     │
                     ▼
-      ┌─────────────────────────────┐
-      │  STAGE 1 — PRE-FILTER       │  ← PreFilter class (expert_system.py)
-      │  (Quick Known Patterns)     │
-      ├─────────────────────────────┤
-      │  SSH:  port=22 + fail>5?    │
-      │  FTP:  port=21 + fail>5?    │
-      │  DDoS: pkt>50k + ips>50?   │
-      │  Scan: ports>50 + <10s?     │
-      └──────────┬──────────┬───────┘
-                YES         NO
-                 │           │
-       DETECTED  │           ▼
-                 │  ┌──────────────────────────┐
-                 │  │  STAGE 2 — ANN MODEL      │  ← MLPredictor (ml_predictor.py)
-                 │  │  PyTorch 4-layer ANN      │
-                 │  │  CICIDS2017 trained       │
-                 │  │  (confidence > 70%?)      │
-                 │  └──────────┬────────────┬──┘
-                 │            YES           NO
-                 │             │             │
-                 │   CLASSIFIED│             ▼
+      ┌─────────────────────────────────┐
+      │  STAGE 1 — ANN MODEL (Primary)  │  ← MLPredictor (ml_predictor.py)
+      │  Runs on EVERY row              │
+      │  PyTorch 4-layer ANN            │
+      │  Trained on CICIDS2017          │
+      │  (confidence > 70%?)            │
+      └──────────┬────────────┬─────────┘
+                YES           NO
+                 │             │
+      CLASSIFIED │             ▼
+                 │  ┌──────────────────────────────────┐
+                 │  │  STAGE 2 — PRE-FILTER             │  ← PreFilter (expert_system.py)
+                 │  │  Only runs when ANN uncertain     │
+                 │  │  Cannot silently override ANN     │
+                 │  ├──────────────────────────────────┤
+                 │  │  SSH:  port=22 + fail>5?          │
+                 │  │  FTP:  port=21 + fail>5?          │
+                 │  │  DDoS: pkt>50k + ips>50?          │
+                 │  │  Scan: ports>50 + <10s?           │
+                 │  └──────────┬───────────┬────────────┘
+                 │            YES          NO
+                 │             │            │
+                 │   RESOLVED  │            ▼
                  │             │  ┌──────────────────────────┐
-                 │             │  │  STAGE 3 — EXPERT SYSTEM  │  ← ExpertSystem (expert_system.py)
-                 │             │  │  Rule-based fallback      │
-                 │             │  │  8 lambda condition rules │
+                 │             │  │  STAGE 3 — EXPERT SYSTEM  │  ← ExpertSystem
+                 │             │  │  8 lambda rules           │    (expert_system.py)
+                 │             │  │  Final fallback           │
                  │             │  └────────────┬─────────────┘
                  │             │               │
                  └──────┬──────┴───────────────┘
-                        │  (classification + stage label)
+                        │  (classification + "stage" label)
                         ▼
           ┌─────────────────────────────┐
           │  MITRE ATT&CK Mapping        │  ← config.py MITRE_MAPPING
@@ -96,8 +98,8 @@ Network Log + Extracted Features (28 fields)
                         ▼
           ┌─────────────────────────────┐
           │  Dashboard Alert             │
-          │  Stage: Pre-filter /         │
-          │         ANN Model /          │
+          │  Stage: ANN Model /          │
+          │         Pre-filter /         │
           │         Expert System        │
           └─────────────────────────────┘
 
@@ -711,30 +713,33 @@ Step 2 — Feature Extraction (per row)
     preprocessor.extract_features(row)
     └── returns dict: dst_port, pkt_count, failed_logins, src_ip, ...
 
-Step 3 — Stage 1: Pre-filter  (NEW)
-    PreFilter.detect(features)
-    ├── SSH Brute Force:  port=22  + failed_logins > 5  → confidence 0.97
-    ├── FTP Brute Force:  port=21  + failed_logins > 5  → confidence 0.95
-    ├── Volumetric DDoS:  pkt>50k  + unique_src_ips>50  → confidence 0.98
-    └── Aggressive Scan:  ports>50 + flow_duration<10s  → confidence 0.96
-
-    IF any rule fires → classification = Pre-filter result, skip Stage 2 & 3
-    ELSE              → continue to Stage 2
-
-Step 4 — Stage 2: ANN Model
+Step 3 — Stage 1: ANN Model (primary, runs on EVERY row)
     ml_predictor.predict(row)
     ├── scales features with StandardScaler
     ├── runs through PyTorch 4-layer ANN
     ├── applies softmax → probability per class
     └── returns { attack_type, confidence }
 
-    IF confidence > 0.7 → classification = ANN result (stage="ANN Model")
-    ELSE                → continue to Stage 3
+    IF confidence > 0.7 → classification = ANN result  →  DONE
+    ELSE                → ANN uncertain, continue to Stage 2
 
-Step 5 — Stage 3: Expert System (fallback)
+Step 4 — Stage 2: Pre-filter (only when ANN confidence < 0.7)
+    PreFilter.detect(features)
+    ├── SSH Brute Force:  port=22  + failed_logins > 5  → confidence 0.97
+    ├── FTP Brute Force:  port=21  + failed_logins > 5  → confidence 0.95
+    ├── Volumetric DDoS:  pkt>50k  + unique_src_ips>50  → confidence 0.98
+    └── Aggressive Scan:  ports>50 + flow_duration<10s  → confidence 0.96
+
+    Pre-filter CANNOT fire when ANN was already confident — no silent overrides.
+
+    IF any rule fires → classification = Pre-filter result  →  DONE
+    ELSE              → continue to Stage 3
+
+Step 5 — Stage 3: Expert System (final fallback)
     expert_system.classify(features)
     └── evaluates 8 broader lambda rules
     └── picks highest-confidence matching rule (stage="Expert System")
+    └── returns "Benign" if no rule matches
 
 Step 6 — Severity Scoring
     severity_engine.score(attack_type, features, confidence)
@@ -751,7 +756,7 @@ Step 8 — Display
     ├── Bar chart — attack type distribution
     ├── Pie chart — severity distribution
     ├── Alert table sorted by severity
-    │     (includes "Stage" column: Pre-filter / ANN Model / Expert System)
+    │     (includes "Stage" column: ANN Model / Pre-filter / Expert System)
     └── Incident deep-dive:
         ├── Severity score + "Detected by: Stage X" label
         ├── MITRE ATT&CK details
@@ -759,13 +764,20 @@ Step 8 — Display
         └── Role-based playbook (L1/L2/L3)
 ```
 
-### Why 3 stages?
+### Why this order? Trade-off analysis
 
-| Stage | Purpose | Speed | Confidence |
+| Stage | Role | Runs when | Why this position |
 |---|---|---|---|
-| Pre-filter | Catch obvious, high-volume attacks instantly without model overhead | Fastest | Highest (95–98%) |
-| ANN Model | Classify ambiguous traffic using patterns learned from 400k+ flows | Medium | ~99.9% on trained classes |
-| Expert System | Handle edge cases and attack types not in training data | Fast | 75–93% (rule-defined) |
+| ANN Model (1st) | Primary classifier | Every row | Most accurate; cross-validates everything; catches nuanced/novel patterns |
+| Pre-filter (2nd) | Uncertainty resolver | ANN confidence < 0.7 only | Provides high-confidence answer for patterns ANN may underscore; cannot override a confident ANN |
+| Expert System (3rd) | Final fallback | ANN + Pre-filter both uncertain | Handles attack types outside the ANN's training classes |
+
+**Honest limitations that remain:**
+
+- **Pre-filter false positives are still possible** — if a user mistyped SSH password 6 times AND the ANN happened to be under 70% confidence on that row, the pre-filter would label it Brute Force. However, this is far less likely than before (ANN must first fail to be confident).
+- **ANN is only trained on Benign / Brute Force** — for DDoS, Port Scan, Web Attack, the ANN will often return low confidence, so pre-filter and expert system handle most of those.
+- **Expert System covers only 8 attack types** — Heartbleed, DoS Hulk variants, Infiltration (if ANN misses) fall back to Benign unless the expert system rules match.
+- **No feedback loop** — misclassifications are not fed back to retrain the ANN. A production system would log analyst corrections and periodically retrain.
 
 ---
 
