@@ -847,6 +847,13 @@ for r in result["results"]:
         print(f"[{r['severity']}] {r['attack_type']} — {r['src_ip']}")
 ```
 
+Production `.env` example for an external hosted app:
+
+```env
+SOC_API_KEY=soc-user_generated_key_here
+SOC_ENDPOINT=https://your-soc-api.onrender.com/api/detect
+```
+
 ### Example JSON Response
 
 ```json

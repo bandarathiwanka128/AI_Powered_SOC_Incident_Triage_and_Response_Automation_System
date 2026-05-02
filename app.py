@@ -17,7 +17,7 @@ from modules.playbook_engine import PlaybookEngine
 from modules.gemini_integration import GeminiAnalyst
 from modules.ml_predictor import MLPredictor
 from modules.auth import register_user, login_user, regenerate_api_key, DB_CONNECTED
-from config import SEVERITY_LEVELS, MITRE_MAPPING
+from config import SEVERITY_LEVELS, MITRE_MAPPING, SOC_API_BASE_URL
 
 # ── Page Config ───────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -129,6 +129,10 @@ if not st.session_state.logged_in:
 # LOGGED IN — SIDEBAR NAVIGATION
 # ═══════════════════════════════════════════════════════════════════════════════
 user = st.session_state.user
+api_base_url = SOC_API_BASE_URL
+detect_endpoint = f"{api_base_url}/api/detect"
+single_detect_endpoint = f"{api_base_url}/api/detect/single"
+health_endpoint = f"{api_base_url}/api/health"
 
 with st.sidebar:
     st.markdown(f"**👤 {user['username']}**")
@@ -174,8 +178,8 @@ if st.session_state.nav == "API Keys":
 
     st.markdown("---")
     st.subheader("API Endpoint")
-    st.code("http://localhost:8000/api/detect", language="bash")
-    st.caption("Start the API server with: uvicorn api_server:app --reload --port 8000")
+    st.code(detect_endpoint, language="bash")
+    st.caption("For production, set SOC_API_BASE_URL to your hosted FastAPI URL, for example https://your-soc-api.onrender.com")
     st.stop()
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -190,8 +194,8 @@ if st.session_state.nav == "Documentation":
 
     # ── Step 1 — Start API Server
     st.subheader("Step 1 — Start the API Server")
-    st.code("uvicorn api_server:app --reload --port 8000", language="bash")
-    st.caption("Run this in your SOC project terminal. Keep it running.")
+    st.code("uvicorn api_server:app --host 0.0.0.0 --port $PORT", language="bash")
+    st.caption("Use this on Render or another host. For local development, use: uvicorn api_server:app --reload --port 8000")
 
     st.markdown("---")
 
@@ -209,7 +213,7 @@ if st.session_state.nav == "Documentation":
 
         st.markdown("#### Create `.env` file in your project folder")
         st.code(f"""SOC_API_KEY={api_key}
-SOC_ENDPOINT=http://localhost:8000/api/detect""", language="bash")
+SOC_ENDPOINT={detect_endpoint}""", language="bash")
 
         st.markdown("#### Create `detect.py` in your project")
         st.code(f"""import os, requests
@@ -245,11 +249,11 @@ for r in result["results"]:
 
         st.markdown("#### Set environment variables (Terminal)")
         st.code(f"""export SOC_API_KEY={api_key}
-export SOC_ENDPOINT=http://localhost:8000/api/detect""", language="bash")
+export SOC_ENDPOINT={detect_endpoint}""", language="bash")
 
         st.markdown("#### Or create `.env` file")
         st.code(f"""SOC_API_KEY={api_key}
-SOC_ENDPOINT=http://localhost:8000/api/detect""", language="bash")
+SOC_ENDPOINT={detect_endpoint}""", language="bash")
 
         st.markdown("#### Run detection")
         st.code("python3 detect.py", language="bash")
@@ -267,12 +271,12 @@ Threats found: 23
 
         st.markdown("#### Add to `~/.bashrc` or `~/.zshrc` (permanent)")
         st.code(f"""echo 'export SOC_API_KEY={api_key}' >> ~/.bashrc
-echo 'export SOC_ENDPOINT=http://localhost:8000/api/detect' >> ~/.bashrc
+echo 'export SOC_ENDPOINT={detect_endpoint}' >> ~/.bashrc
 source ~/.bashrc""", language="bash")
 
         st.markdown("#### Or use `.env` file (recommended)")
         st.code(f"""SOC_API_KEY={api_key}
-SOC_ENDPOINT=http://localhost:8000/api/detect""", language="bash")
+SOC_ENDPOINT={detect_endpoint}""", language="bash")
 
         st.markdown("#### Run detection")
         st.code("python3 detect.py", language="bash")
@@ -287,29 +291,29 @@ SOC_ENDPOINT=http://localhost:8000/api/detect""", language="bash")
 
         st.markdown("#### Set API key on server")
         st.code(f"""export SOC_API_KEY={api_key}
-export SOC_ENDPOINT=http://localhost:8000/api/detect""", language="bash")
+export SOC_ENDPOINT={detect_endpoint}""", language="bash")
 
         st.markdown("#### Send logs directly from server via cURL")
-        st.code(f"""curl -X POST http://localhost:8000/api/detect \\
+        st.code(f"""curl -X POST {detect_endpoint} \\
   -H "X-API-Key: {api_key}" \\
   -F "file=@/var/log/network_logs.csv" \\
   | python3 -m json.tool""", language="bash")
 
         st.markdown("#### Check API health remotely")
-        st.code("curl http://localhost:8000/api/health", language="bash")
+        st.code(f"curl {health_endpoint}", language="bash")
 
     # cURL / API
     with tab_curl:
         st.markdown("#### Health check")
-        st.code("curl http://localhost:8000/api/health", language="bash")
+        st.code(f"curl {health_endpoint}", language="bash")
 
         st.markdown("#### Detect threats from CSV file")
-        st.code(f"""curl -X POST http://localhost:8000/api/detect \\
+        st.code(f"""curl -X POST {detect_endpoint} \\
   -H "X-API-Key: {api_key}" \\
   -F "file=@network_logs.csv" """, language="bash")
 
         st.markdown("#### Detect single row (JSON)")
-        st.code(f"""curl -X POST http://localhost:8000/api/detect/single \\
+        st.code(f"""curl -X POST {single_detect_endpoint} \\
   -H "X-API-Key: {api_key}" \\
   -H "Content-Type: application/json" \\
   -d '{{"Destination Port": 22, "Total Fwd Packets": 67, "Flow Duration": 5200}}'""", language="bash")

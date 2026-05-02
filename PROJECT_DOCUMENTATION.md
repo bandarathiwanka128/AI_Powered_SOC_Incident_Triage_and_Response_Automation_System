@@ -653,14 +653,10 @@ All listed in `requirements.txt`:
 | `pymongo` | ≥4.6.0 | MongoDB Atlas database connection |
 | `bcrypt` | ≥4.0.0 | Password hashing for user auth |
 | `google-generativeai` | ≥0.5.2 | Gemini 1.5 Flash AI summaries |
-| `torch` | (install separately) | PyTorch ANN model inference |
-| `fastapi` | (install separately) | REST API server |
-| `uvicorn` | (install separately) | ASGI server for FastAPI |
-
-> **Note:** `torch`, `fastapi`, and `uvicorn` are not in `requirements.txt` to keep the Streamlit Cloud build lean. Install them separately for full functionality:
-> ```bash
-> pip install torch fastapi uvicorn
-> ```
+| `torch` | >=2.2.0 | PyTorch ANN model inference |
+| `fastapi` | >=0.110.0 | REST API server |
+| `uvicorn` | >=0.27.0 | ASGI server for FastAPI |
+| `python-multipart` | >=0.0.9 | File uploads for FastAPI |
 
 ---
 
@@ -783,7 +779,9 @@ Step 8 — Display
 
 ## 9. API Reference
 
-Start server: `uvicorn api_server:app --reload --port 8000`
+Local server: `uvicorn api_server:app --reload --port 8000`
+
+Production server, for example Render: `uvicorn api_server:app --host 0.0.0.0 --port $PORT`
 
 | Method | Endpoint | Auth | Description |
 |---|---|---|---|
@@ -794,7 +792,7 @@ Start server: `uvicorn api_server:app --reload --port 8000`
 
 **Example — detect threats from CSV:**
 ```bash
-curl -X POST http://localhost:8000/api/detect \
+curl -X POST https://your-soc-api.onrender.com/api/detect \
   -H "X-API-Key: soc-your_api_key_here" \
   -F "file=@network_logs.csv"
 ```
@@ -829,10 +827,13 @@ Create a `.env` file in the project root:
 
 ```env
 GEMINI_API_KEY=your_google_gemini_api_key_here
+MONGO_URI=your_mongodb_atlas_connection_string
+SOC_API_BASE_URL=https://your-soc-api.onrender.com
 ```
 
 - **GEMINI_API_KEY** — Get from [Google AI Studio](https://aistudio.google.com/). If not set, the dashboard shows static fallback summaries instead of AI-generated ones.
-- MongoDB URI is currently hard-coded in `modules/auth.py` — move to `.env` for production.
+- **MONGO_URI** — MongoDB Atlas connection string used for login, registration, and API key validation.
+- **SOC_API_BASE_URL** — Public FastAPI base URL shown in the dashboard integration examples. Use `http://localhost:8000` for local development.
 
 ---
 
@@ -843,10 +844,9 @@ GEMINI_API_KEY=your_google_gemini_api_key_here
 ```bash
 # 1. Install dependencies
 pip install -r requirements.txt
-pip install torch fastapi uvicorn
 
 # 2. Create .env file
-echo "GEMINI_API_KEY=your_key" > .env
+copy .env.example .env
 
 # 3. Run Streamlit dashboard
 streamlit run app.py

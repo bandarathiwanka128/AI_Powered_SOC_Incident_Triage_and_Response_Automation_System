@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+SOC_API_BASE_URL = os.getenv("SOC_API_BASE_URL", "http://localhost:8000").rstrip("/")
 
 # Severity thresholds
 SEVERITY_LEVELS = {

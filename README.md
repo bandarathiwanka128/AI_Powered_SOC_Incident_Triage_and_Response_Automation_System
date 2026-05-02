@@ -15,7 +15,22 @@ streamlit run app.py
 ## Setup Gemini API (Optional)
 1. Go to [Google AI Studio](https://aistudio.google.com)
 2. Create a free API key
-3. Create `.env` file: `GEMINI_API_KEY=your_key_here`
+3. Copy `.env.example` to `.env` and set `GEMINI_API_KEY=your_key_here`
+
+## Production Environment
+Set these variables on your host platform:
+
+```env
+MONGO_URI=your_mongodb_atlas_connection_string
+GEMINI_API_KEY=your_gemini_key
+SOC_API_BASE_URL=https://your-soc-api.onrender.com
+```
+
+For the FastAPI service, use this start command:
+
+```bash
+uvicorn api_server:app --host 0.0.0.0 --port $PORT
+```
 
 ## Project Structure
 - `app.py` — Main Streamlit dashboard

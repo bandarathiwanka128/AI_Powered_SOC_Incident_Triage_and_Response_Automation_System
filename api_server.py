@@ -153,6 +153,8 @@ async def detect_single(
         classification["attack_type"], features, classification["confidence"]
     )
 
+    increment_request_count(x_api_key)
+
     return {
         "attack_type": classification["attack_type"],
         "severity":    sev["level"],
