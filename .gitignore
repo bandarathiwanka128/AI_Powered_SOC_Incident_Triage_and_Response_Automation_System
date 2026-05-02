@@ -5,6 +5,9 @@ __pycache__/
 *.h5
 models/*.pkl
 models/*.h5
+!models/feature_cols.pkl
+!models/pytorch_model_info.pkl
+!models/scaler.pkl
 data/CICIDS2017/
 data/NSL-KDD/
 *.csv
