@@ -6,6 +6,7 @@ Trained on CICIDS2017 Tuesday dataset (Benign, Brute Force)
 import numpy as np
 import os
 import joblib
+from collections import OrderedDict
 
 MODEL_PATH    = "models/soc_pytorch_model.pt"
 INFO_PATH     = "models/pytorch_model_info.pkl"
@@ -47,6 +48,32 @@ class MLPredictor:
         self.enabled = False
         self._load_model()
 
+    def _load_state_dict(self, torch):
+        checkpoint = torch.load(
+            MODEL_PATH,
+            map_location=torch.device("cpu"),
+            weights_only=True,
+        )
+
+        if isinstance(checkpoint, dict):
+            for key in ("state_dict", "model_state_dict", "model"):
+                if key in checkpoint and isinstance(checkpoint[key], dict):
+                    checkpoint = checkpoint[key]
+                    break
+
+        if not isinstance(checkpoint, dict):
+            raise TypeError("Unsupported PyTorch checkpoint format")
+
+        state_dict = OrderedDict()
+        for key, value in checkpoint.items():
+            clean_key = key
+            for prefix in ("module.", "model.", "network."):
+                if clean_key.startswith(prefix):
+                    clean_key = clean_key[len(prefix):]
+            state_dict[clean_key] = value
+
+        return state_dict
+
     def _load_model(self):
         if not os.path.exists(MODEL_PATH):
             print("PyTorch model not found — falling back to expert system.")
@@ -73,9 +100,7 @@ class MLPredictor:
                 nn.ReLU(),
                 nn.Linear(32, self.num_classes)
             )
-            self.model.load_state_dict(
-                torch.load(MODEL_PATH, map_location=torch.device("cpu"), weights_only=True)
-            )
+            self.model.load_state_dict(self._load_state_dict(torch))
             self.model.eval()
             self.torch   = torch
             self.enabled = True
